@@ -43,7 +43,9 @@
   }
   function undo() { if (hist.length < 2) return; redo.push(hist.pop()); spec = JSON.parse(hist[hist.length - 1]); clampSel(); queueSave(); render(); }
   function redoFn() { if (!redo.length) return; const s = redo.pop(); hist.push(s); spec = JSON.parse(s); clampSel(); queueSave(); render(); }
-  function updateUndo() { $("undoBtn").disabled = hist.length < 2; $("redoBtn").disabled = !redo.length; }
+  function updateUndo() { $("undoBtn").disabled = hist.length < 2; $("redoBtn").disabled = !redo.length; updateSaveBtn(); }
+  /** Typing in a box or dragging a slider changes the page at once; it is saved a moment later even before the box is left (undo still takes the whole change). */
+  function liveEdit() { edited = true; queueSave(); }
   function clampSel() {
     if (pageIdx >= spec.pages.length) pageIdx = 0;
     if (sel >= items().length) sel = -1;
@@ -305,13 +307,37 @@
   }
 
   function queueSave() {
-    dirty = true;
+    dirty = true; updateSaveBtn();
     if (store.kind === "none") return;
     saveStatus("Saving…");
     clearTimeout(saveTimer);
     saveTimer = setTimeout(save, 1200);
   }
-  async function save() {
+  let saving = null, saveConflict = false; // the save being sent now; the chapter was storyboarded again under this tab
+  function save() { // one save at a time: a second call waits for the first, then sends what is left
+    const mine = (saving || Promise.resolve()).then(saveOnce).finally(() => { if (saving === mine) saving = null; updateSaveBtn(); });
+    saving = mine; updateSaveBtn(); return mine;
+  }
+  /** The Save button: commits what is being typed, then saves at once (no waiting for the timer). Resolves true when everything is on disk. */
+  async function saveNow() {
+    if (store.kind === "none") return false;
+    if (spec && hist.length && hist[hist.length - 1] !== JSON.stringify(spec)) snap();
+    clearTimeout(saveTimer);
+    if (saving) await saving;
+    if (dirty) await save();
+    if (dirty) { await new Promise((r) => setTimeout(r, 1500)); clearTimeout(saveTimer); if (dirty) await save(); } // one quick retry
+    return !dirty && !saveConflict;
+  }
+  function updateSaveBtn() {
+    const b = $("saveBtn"); if (!b) return;
+    b.hidden = store.kind === "none" || !spec;
+    const busy = !!saving;
+    b.disabled = !dirty && !busy;
+    b.textContent = busy ? "Saving…" : dirty ? "Save changes" : "Saved";
+    b.classList.toggle("primary", dirty && !busy);
+    b.title = dirty ? "Save your changes now (Ctrl+S). They also save by themselves a moment after each change." : "Everything is saved";
+  }
+  async function saveOnce() {
     if (!dirty) return;
     dirty = false;
     const body = forSave();
@@ -330,11 +356,11 @@
       }
       else if (store.kind === "local") {
         const r = await fetch("/api/spec?p=" + encodeURIComponent(proj.id), { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify(body, null, 1) });
-        if (r.status === 409) { dirty = false; setStatus("This chapter was storyboarded again since you opened it. Reload the page to see the new pages (this tab's changes were not saved).", "error"); return; }
+        if (r.status === 409) { dirty = false; saveConflict = true; setStatus("This chapter was storyboarded again since you opened it. Reload the page to see the new pages (this tab's changes were not saved).", "error"); return; }
         if (!r.ok) throw new Error("HTTP " + r.status);
       }
       saveFails = 0;
-      saveStatus(dirty ? "Saving…" : "Saved", dirty ? "" : "ok");
+      saveStatus(dirty ? "Saving…" : "Saved", dirty ? "" : "ok"); updateSaveBtn();
     } catch (e) {
       dirty = true; saveFails++;
       // pages already written are remembered, so each retry only sends what is left
@@ -2368,7 +2394,7 @@
   }
   function editPanel(fn, commit = true) {
     const p = page(), f = findPanel(selP); if (!p.layout || !f) return;
-    mutateLayout(() => fn(f.panel, p.layout, f)); render(); if (commit) snap();
+    mutateLayout(() => fn(f.panel, p.layout, f)); render(); if (commit) snap(); else liveEdit();
   }
   /** The layouts of the pages on either side of this one (a page never repeats its neighbour's layout). */
   function neighbourShapes() { const D = window.Director; if (!D) return []; return [spec.pages[pageIdx - 1], spec.pages[pageIdx + 1]].filter((q) => q && q.layout && !q.cover).map((q) => D.shape(q.layout.rows)); }
@@ -2415,7 +2441,7 @@
   // ---------- inspector edits ----------
   function edit(fn, commit = true) {
     const it = items()[sel]; if (!it) return;
-    fn(it); render(); if (commit) snap();
+    fn(it); render(); if (commit) snap(); else liveEdit();
   }
 
   function addBalloon(kind) {
@@ -2538,6 +2564,7 @@
     if (hit && hit.status === "draft" && !replace) { if (!confirm(`Chapter ${num} is already on the site as a draft (${hit.pages} pages). Replace that draft with these ${n} pages?`)) return; replace = true; }
     pub.busy = true; pubPaint(); $("pubResult").textContent = ""; $("pubOpen").hidden = true;
     try {
+      if (!(await saveNow()) && dirty) throw new Error("your changes could not be saved first. Press Save changes and try again");
       await fetch("/api/exports?p=" + encodeURIComponent(proj.id), { method: "DELETE" }); // only this chapter's pages, as they are now
       for (let i = 0; i < n; i++) { const p = spec.pages[i]; go.textContent = `Drawing page ${i + 1} of ${n}…`;
         const blob = await pageBlob(p, p.text.map((it) => R.measure(it, spec, measureText)));
@@ -2568,6 +2595,8 @@
     try { localStorage.setItem("ibasho-export", JSON.stringify({ format: ex.format, size: ex.size, sets: ex.sets, paper: ex.paper })); } catch (e) { /* not kept */ }
     ex.busy = true; exPaint();
     try {
+      go.textContent = "Saving your changes…";
+      if (!(await saveNow()) && dirty) throw new Error("Your changes could not be saved, so nothing was exported. Press Save changes and try again.");
       if (whole) await fetch("/api/exports?p=" + encodeURIComponent(proj.id), { method: "DELETE" }); // pages left over from a longer storyboard go
       for (let k = 0; k < idx.length; k++) {
         const i = idx[k], p = spec.pages[i];
@@ -2926,6 +2955,9 @@
     $("addMenu").innerHTML = Object.entries(R.KINDS).map(([k, v]) => `<button type="button" data-add="${k}">${kindIcon(k)}<span><b>${v.label}</b><small>${R.esc(v.hint)}</small></span></button>`).join("");
     $("undoBtn").addEventListener("click", undo);
     $("redoBtn").addEventListener("click", redoFn);
+    $("saveBtn").addEventListener("click", async () => { const ok = await saveNow(); if (ok) setStatus("Saved. Your changes are on this computer.", "ok"); else if (dirty && !saveConflict) setStatus("Could not save. Your edits are still here; press Save changes to try again.", "error"); });
+    window.addEventListener("beforeunload", (e) => { if (dirty || saving) { save(); e.preventDefault(); e.returnValue = ""; } }); // a reload or closing the tab with unsaved changes asks first
+    document.addEventListener("visibilitychange", () => { if (document.hidden && dirty && store.kind !== "none") { clearTimeout(saveTimer); save(); } }); // a phone switching apps saves before the tab can be dropped
     $("guidesChk").addEventListener("change", (e) => { guides = e.target.checked; render(); });
     $("exportBtn").addEventListener("click", () => (store.kind === "local" && proj && proj.id ? openExport(mode === "chapter" ? undefined : pageIdx) : exportPng())); // away from the app's own server there is one PNG, as before
     $("exportAllBtn").addEventListener("click", () => openExport());
@@ -2966,7 +2998,8 @@
     });
     document.addEventListener("keydown", (e) => {
       const typing = /INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName);
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z") { e.preventDefault(); e.shiftKey ? redoFn() : undo(); }
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") { e.preventDefault(); $("saveBtn").click(); }
+      else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z") { e.preventDefault(); e.shiftKey ? redoFn() : undo(); }
       else if (!typing && !e.ctrlKey && !e.metaKey && !e.altKey && mode !== "home" && mode !== "book" && "lyachs".includes(e.key.toLowerCase()) && e.key.length === 1) { // tools: L Y A C H S
         const b = document.querySelector(`#modeTabs [data-mode="${{ l: "letter", y: "layout", a: "art", c: "check", h: "chapter", s: "series" }[e.key.toLowerCase()]}"]`);
         if (b && !b.hidden) { e.preventDefault(); b.click(); }
@@ -3002,7 +3035,7 @@
     spec = prepare(await res.json());
     original = JSON.parse(JSON.stringify(spec));
     hist = [JSON.stringify(spec)]; redo = []; edited = false; dirty = false; savedFor = ""; // the built chapter is on screen until the saved edits are loaded
-    pageIdx = 0; sel = -1; selP = null; drafts = {}; savedPages = {};
+    pageIdx = 0; sel = -1; selP = null; drafts = {}; savedPages = {}; saveConflict = false;
     bible = await fetch(f.dir + "bible.json").then((r) => (r.ok ? r.json() : null)).catch(() => null);
     if (syncReading()) hist = [JSON.stringify(spec)]; // the series' direction was changed from another chapter
     mode = spec.kind === "storyboard" ? "chapter" : "letter";
