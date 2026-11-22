@@ -427,3 +427,6 @@ body.anime .thumb { border-radius: 8px; }
 #npPlan .act .actWhat { grid-column: 1 / -1; }
 #npPlan .acts-head { font-size: .85em; color: var(--muted); }
 #npPlan .acts { display: grid; gap: 10px; }
+
+/* Japanese can break after any letter, so a row of buttons would squeeze each one to a letter's width: keep a button as wide as its words (it wraps to the next row instead) */
+html:lang(ja) .row > .btn { min-width: fit-content; }

@@ -25,6 +25,10 @@
 @font-face { font-family: "Patrick Hand"; src: url(fonts/PatrickHand.ttf); font-weight: 400; }
 @font-face { font-family: "Comic Neue"; src: url(fonts/ComicNeue-Bold.ttf); font-weight: 700; }
 @font-face { font-family: "Kalam"; src: url(fonts/Kalam-Bold.ttf); font-weight: 700; }
+@font-face { font-family: "Zen Antique Soft"; src: url(fonts/ZenAntiqueSoft-Regular.woff2) format("woff2"); font-weight: 400; font-display: block; }
+@font-face { font-family: "Dela Gothic One"; src: url(fonts/DelaGothicOne-Regular.woff2) format("woff2"); font-weight: 400; font-display: block; }
+@font-face { font-family: "Zen Kaku Gothic New"; src: url(fonts/ZenKakuGothicNew-Bold.woff2) format("woff2"); font-weight: 700; font-display: block; }
+@font-face { font-family: "Zen Maru Gothic"; src: url(fonts/ZenMaruGothic-Bold.woff2) format("woff2"); font-weight: 700; font-display: block; }
 
 * { box-sizing: border-box; }
 body { background: var(--bg); color: var(--ink); font: 16px/1.4 var(--ui); padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 12px 32px; }
@@ -357,6 +361,7 @@ input[type="range"] { width: 100%; accent-color: var(--blue); }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
 </style>
 <link rel="stylesheet" href="studio.css?v=13">
+<script src="i18n.js?v=2"></script>
 <script src="studio.js?v=10"></script>
 
 <header class="appbar">
@@ -786,7 +791,7 @@ input[type="range"] { width: 100%; accent-color: var(--blue); }
   <div class="dlg-head"><h2 id="settingsT">Settings</h2><button type="button" class="btn" id="settingsX">Close</button></div>
   <p class="hint">Your own choices, kept in this browser on this device.</p>
   <label class="setrow"><input type="checkbox" id="setAuto"><span><b>Check pictures by themselves after they are drawn</b><br><span class="hint">The asset check compares every drawn panel with the others and with the approved sheets. It takes a few minutes and only warns.</span></span></label>
-  <p class="hint">Light or dark: the sun and moon button, top right.</p>
+  <p class="hint" data-sun-hint>Light or dark: the sun and moon button, top right.</p>
   <p class="setrow"><a class="btn" href="/connections">Connections</a><span class="hint">Sign in to Codex and link your keys (OpenRouter, Google, ElevenLabs, fal and more). Also the plug button, top right.</span></p>
 </dialog>
 <dialog id="autoDlg" aria-labelledby="autoT">

@@ -949,7 +949,7 @@
     const head = $("#sndHead"); if (!head || !S) { sndRaf = 0; Solo.on = false; return; }
     if (!withPlayer()) { if (Solo.on) { Solo.t += (now - Solo.last) / 1000; const tot = shotStarts().total; if (Solo.t >= tot) { Solo.t = tot; Solo.on = false; } } Solo.last = now; Mix.tick(Solo.t, Solo.on); }
     const t = Clock.time(); head.style.left = t * (S.snd.pps || 1) + "px";
-    const b = $("#sndPlay"), txt = Clock.playing() ? "❚❚ Pause" : "▶ Play"; if (b && b.textContent !== txt) b.textContent = txt;
+    const b = $("#sndPlay"), txt = Clock.playing() ? "❚❚ Pause" : "▶ Play"; if (b && b.dataset.txt !== txt) { b.dataset.txt = txt; b.textContent = txt; } // (compared by what was set: the shown words may be translated)
     const tm = $("#sndTime"); if (tm) tm.textContent = `${t.toFixed(1)} / ${shotStarts().total.toFixed(1)} s`;
     sndRaf = requestAnimationFrame(sndLoop);
   }

@@ -14,7 +14,63 @@
     patrick:   { label: "Patrick Hand", family: "'Patrick Hand', 'Comic Sans MS', cursive", w: 400, b: 400 },
     comicneue: { label: "Comic Neue",   family: "'Comic Neue', 'Comic Sans MS', cursive", w: 700, b: 700 },
     kalam:     { label: "Kalam",        family: "Kalam, 'Comic Sans MS', cursive",        w: 700, b: 700 },
+    // Japanese lettering (all OFL): an anti-que style for talk, heavy gothic for shouts and sounds, gothic for captions, round for asides
+    zenantique: { label: "Zen Antique Soft (日本語)", family: "'Zen Antique Soft', 'Hiragino Mincho ProN', 'Yu Mincho', serif", w: 400, b: 400, ja: true },
+    delagothic: { label: "Dela Gothic One (日本語)",  family: "'Dela Gothic One', 'Hiragino Sans', sans-serif",               w: 400, b: 400, ja: true },
+    zenkaku:    { label: "Zen Kaku Gothic (日本語)",  family: "'Zen Kaku Gothic New', 'Hiragino Sans', sans-serif",           w: 700, b: 700, ja: true },
+    zenmaru:    { label: "Zen Maru Gothic (日本語)",  family: "'Zen Maru Gothic', 'Hiragino Maru Gothic ProN', sans-serif",   w: 700, b: 700, ja: true },
   };
+  // the Japanese font each kind uses when its words are Japanese and its own font has no Japanese letters
+  const JA_FONT = { speech: "zenantique", whisper: "zenantique", thought: "zenantique", crowd: "zenantique", title: "zenantique",
+    shout: "delagothic", sfx: "delagothic", caption: "zenkaku", phone: "zenkaku", ambient: "zenmaru" };
+  // Japanese words are set in columns, top to bottom, the columns running right to left (縦書き); phone screens and sounds stay across
+  const VERTICAL_KINDS = new Set(["speech", "shout", "whisper", "thought", "caption", "ambient", "crowd"]);
+  const JA = /[\u3040-\u30ff\u3400-\u9fff\uf900-\ufaff\uff01-\uff60\u3000-\u303f]/;
+  const isJapanese = (text) => JA.test(String(text || ""));
+  const FULL = /[\u1100-\u115f\u2e80-\ua4cf\uac00-\ud7a3\uf900-\ufaff\ufe30-\ufe4f\uff00-\uff60\uffe0-\uffe6\u2026\u2025\u2014\u2015]/; // takes a full square
+  // 禁則: never at the head of a line or column / never at its end
+  const NO_HEAD = new Set([..."、。，．・：；？！ー～…‥」』）］｝〉》】〕’”ぁぃぅぇぉっゃゅょゎゕゖァィゥェォッャュョヮヵヶ々ゝゞヽヾ!?)]}.,:;"]);
+  const NO_TAIL = new Set([..."「『（［｛〈《【〔‘“([{"]);
+  /** Japanese words cut into the smallest pieces a line may break between: a letter with the marks that may not start a line,
+   *  and an opening bracket glued to what follows. A space (the writer's hint for a good break) is kept as a mark on the piece after it. */
+  function jaUnits(text) {
+    const out = []; let bold = false, gap = false;
+    for (const part of String(text || "").split(/(\*\*)/)) {
+      if (part === "**") { bold = !bold; continue; }
+      for (const ch of part) {
+        if (/\s/.test(ch)) { gap = out.length > 0; continue; }
+        const last = out[out.length - 1];
+        if (last && !gap && (NO_HEAD.has(ch) || NO_TAIL.has(last.w[last.w.length - 1]))) { last.w += ch; continue; }
+        out.push({ w: ch, b: bold, gap }); gap = false;
+      }
+    }
+    return out;
+  }
+  /** Lines (or columns) of Japanese pieces no longer than max: break at the writer's last space when that keeps the line at least a third full, else at a letter. */
+  function jaBreak(units, len, max) {
+    const lines = []; let cur = [], used = 0;
+    units.forEach((u, i) => {
+      if (cur.length && used + len[i] > max) {
+        if (u.gap) { lines.push(cur); cur = []; used = 0; cur.push(i); used += len[i]; return; } // the new phrase simply starts the next line
+        let cut = -1;
+        for (let k = cur.length - 1; k > 0; k--) if (units[cur[k]].gap) { cut = k; break; }
+        const head = cut > 0 ? cur.slice(0, cut) : cur, headLen = head.reduce((a, j) => a + len[j], 0);
+        if (cut > 0 && headLen >= max * 0.3) { lines.push(head); cur = cur.slice(cut); used = cur.reduce((a, j) => a + len[j], 0); }
+        else { lines.push(cur); cur = []; used = 0; }
+      }
+      cur.push(i); used += len[i];
+    });
+    return cur.length ? lines.concat([cur]) : lines;
+  }
+  /** Breaks that fall inside a writer's phrase (not at a space): fewer is better. */
+  const midBreaks = (units, lines) => lines.slice(1).filter((ln) => ln.length && !units[ln[0]].gap).length;
+  /** The narrowest measure that keeps the same number of lines and no more breaks inside phrases: even lines, whole phrases. */
+  function jaBalance(units, len, max) {
+    const first = jaBreak(units, len, max), n = first.length, mids = midBreaks(units, first);
+    let lo = 0, hi = max;
+    for (let k = 0; k < 14; k++) { const mid = (lo + hi) / 2, t = jaBreak(units, len, mid); if (t.length === n && midBreaks(units, t) <= mids) hi = mid; else lo = mid; }
+    return jaBreak(units, len, hi);
+  }
 
   // The 10 balloon types (SFX is drawn in the art, so it is not typeset here).
   const KINDS = {
@@ -51,9 +107,17 @@
     const kind = KINDS[item.kind] ? item.kind : "speech";
     const st = Object.assign({}, KINDS[kind], (spec.styles || {})[kind] || {});
     const voice = (spec.voices || {})[item.speaker] || {};
-    const fontKey = FONTS[item.font] ? item.font : FONTS[voice.font] ? voice.font : st.font;
+    let fontKey = FONTS[item.font] ? item.font : FONTS[voice.font] ? voice.font : st.font;
+    if (isJapanese(item.text) && !FONTS[fontKey].ja) fontKey = JA_FONT[kind] || "zenantique";
     const mult = item.size != null ? item.size : voice.size != null ? voice.size : 1;
     return { kind, st, fontKey, mult, voice };
+  }
+
+  /** Is this item set in Japanese columns? item.dir "v" or "h" decides; else Japanese words in a kind that may stand up. */
+  function isVertical(item, kind) {
+    if (item.dir === "h") return false;
+    if (item.dir === "v") return true;
+    return VERTICAL_KINDS.has(kind) && isJapanese(item.text);
   }
 
   /** measureText(cssFont, string) -> width in u. */
@@ -62,6 +126,8 @@
     const f = FONTS[fontKey];
     const size = st.size * mult;
     const fontCss = (bold) => `${bold || st.allBold ? f.b : f.w} ${size}px ${f.family}`;
+    if (isVertical(item, kind)) return measureColumns(item, kind, st, fontKey, f, size, fontCss, measureText);
+    if (isJapanese(item.text)) return measureJaRows(item, kind, st, fontKey, f, size, fontCss, measureText);
     const toks = tokens(item.text, st.upper);
     const space = measureText(fontCss(false), " ");
     const wordW = toks.map((t) => measureText(fontCss(t.b), t.w));
@@ -169,6 +235,61 @@
 
   const poly = (pts) => pts.map((p) => r1(p[0]) + "," + r1(p[1])).join(" ");
 
+  /** The balloon's half sizes round a text block, from the corners of each line (or column). */
+  function bodyFit(st, tw, th, corners) {
+    if (st.shape === "box" || st.shape === "phone") return [tw / 2 + st.px, th / 2 + st.py];
+    if (st.shape === "none") return [tw / 2 + 4, th / 2 + 4];
+    const a = tw / 2 + st.px, b = th / 2 + st.py;
+    let s = 1;
+    for (const [x, y] of corners) s = Math.max(s, Math.pow(Math.pow(Math.abs(x) / a, N) + Math.pow(Math.abs(y) / b, N), 1 / N));
+    return [a * s, b * s];
+  }
+
+  /** Japanese set across (a phone screen, a sound, or dir "h"): no spaces between words, breaks by 禁則. */
+  function measureJaRows(item, kind, st, fontKey, f, size, fontCss, measureText) {
+    const toks = jaUnits(st.upper ? String(item.text || "").toUpperCase() : item.text);
+    const len = toks.map((t) => measureText(fontCss(t.b), t.w));
+    const maxW = (item.width != null ? item.width : st.width) * W;
+    let lines = jaBalance(toks, len, maxW);
+    if (!lines.length) lines = [[]];
+    const widths = lines.map((ln) => ln.reduce((a, i) => a + len[i], 0));
+    const lh = size * st.lh, tw = Math.max(1, ...widths), th = lh * lines.length;
+    const corners = []; widths.forEach((w, i) => [i, i + 1].forEach((j) => corners.push([w / 2, -th / 2 + j * lh])));
+    const [rx, ry] = bodyFit(st, tw, th, corners);
+    return {
+      item, kind, st, fontKey, f, size, fontCss, toks, lines, widths, lh, tw, th, rx, ry, ja: true,
+      cx: (item.at ? item.at[0] : 0.5) * W, cy: (item.at ? item.at[1] : 0.5) * H,
+      hasTail: !!item.tail && TAIL_KINDS.has(kind),
+      rotate: st.shape === "none" ? (item.rotate != null ? item.rotate : st.rotate || 0) : 0,
+    };
+  }
+
+  /** Japanese in columns (縦書き): each column top to bottom, the first column on the right. Full-square letters take one square;
+   *  latin letters and numbers lie on their side and take their width. The columns are balanced like lines across are. */
+  function measureColumns(item, kind, st, fontKey, f, size, fontCss, measureText) {
+    const toks = jaUnits(item.text);
+    const len = toks.map((t) => [...t.w].reduce((a, ch) => a + (FULL.test(ch) || JA.test(ch) ? size : measureText(fontCss(t.b), ch)), 0));
+    // the longest column, in letters: a manga balloon holds about 5 to 8 a column
+    const per = item.width != null ? Math.max(2, Math.round(item.width * W / size)) : kind === "caption" ? 10 : kind === "shout" ? 6 : kind === "crowd" || kind === "whisper" ? 6 : kind === "ambient" ? 4 : 7;
+    const maxH = per * size + 0.01;
+    let cols = jaBalance(toks, len, maxH);
+    if (!cols.length) cols = [[]];
+    const heights = cols.map((c) => c.reduce((a, i) => a + len[i], 0));
+    const pitch = size * Math.max(1.3, st.lh + 0.12);
+    const tw = size + pitch * (cols.length - 1), th = Math.max(1, ...heights);
+    const corners = [];
+    cols.forEach((c, i) => { const x = tw / 2 - size / 2 - i * pitch; for (const dx of [-size / 2, size / 2]) for (const y of [-th / 2, -th / 2 + heights[i]]) corners.push([x + dx, y]); });
+    // a column balloon is padded more at top and foot than at the sides
+    const st2 = Object.assign({}, st, { px: st.py, py: st.px * 1.1 });
+    const [rx, ry] = bodyFit(st2, tw, th, corners);
+    return {
+      item, kind, st, fontKey, f, size, fontCss, toks, lines: cols, widths: heights, lh: pitch, tw, th, rx, ry, ja: true, vertical: true,
+      cx: (item.at ? item.at[0] : 0.5) * W, cy: (item.at ? item.at[1] : 0.5) * H,
+      hasTail: !!item.tail && TAIL_KINDS.has(kind),
+      rotate: st.shape === "none" ? (item.rotate != null ? item.rotate : st.rotate || 0) : 0,
+    };
+  }
+
   function rectPath(L, inset, radius) {
     const x0 = L.cx - L.rx + inset, y0 = L.cy - L.ry + inset, w = 2 * (L.rx - inset), h = 2 * (L.ry - inset);
     return `x="${r1(x0)}" y="${r1(y0)}" width="${r1(w)}" height="${r1(h)}" rx="${radius}" ry="${radius}"`;
@@ -182,13 +303,23 @@
     const halo = st.sfx ? ` stroke="${L.item.hollow ? esc(L.item.ink || "#000") : "#fff"}" stroke-width="${r1(size * 0.13)}" stroke-linejoin="round" paint-order="stroke"`
       : st.shape === "none" ? ` stroke="#fff" stroke-width="${r1(size * 0.22)}" stroke-linejoin="round" paint-order="stroke"` : "";
     let out = "";
+    if (L.vertical) {
+      // one <text> a column, standing up; the first column on the right
+      lines.forEach((col, i) => {
+        const x = cx + tw / 2 - size / 2 - lh * i, y = cy - th / 2;
+        const spans = col.map((ti) => { const t = L.toks[ti]; return `<tspan font-weight="${t.b || st.allBold ? f.b : f.w}">${esc(t.w)}</tspan>`; }).join("");
+        out += `<text x="${r1(x)}" y="${r1(y)}" writing-mode="vertical-rl" style="writing-mode:vertical-rl;text-orientation:mixed" font-family="${esc(f.family)}" font-size="${r1(size)}" font-weight="${f.w}" fill="${esc(ink)}"${halo}>${spans}</text>`;
+      });
+      if (L.rotate) out = `<g transform="rotate(${L.rotate} ${r1(cx)} ${r1(cy)})">${out}</g>`;
+      return out;
+    }
     lines.forEach((line, i) => {
       const y = cy - th / 2 + lh * i + lh * 0.76;
       const x = left ? cx - tw / 2 : cx;
       const spans = line.map((ti, k) => {
         const t = L.toks[ti];
         const wgt = t.b || st.allBold ? f.b : f.w;
-        return `<tspan font-weight="${wgt}">${esc(t.w)}${k < line.length - 1 ? " " : ""}</tspan>`;
+        return `<tspan font-weight="${wgt}">${esc(t.w)}${k < line.length - 1 && !L.ja ? " " : ""}</tspan>`;
       }).join("");
       out += `<text x="${r1(x)}" y="${r1(y)}" text-anchor="${left ? "start" : "middle"}" font-family="${esc(f.family)}" font-size="${r1(size)}" font-weight="${f.w}" fill="${esc(ink)}"${halo} xml:space="preserve">${spans}</text>`;
     });
@@ -563,7 +694,21 @@
       if (size < 1) item.size = size;
       const [bx0, by0, bx1, by1] = cell.bbox, pad = 12;
       if (line.width) item.width = line.width;
-      else {
+      else if (isVertical(item, item.kind)) {
+        // Japanese columns: pick the column length (in letters): fits the panel, taller than wide, breaks between phrases, no lonely scrap of a column
+        const sz = styleFor(item, spec).st.size * (item.size || 1);
+        let pick = null;
+        for (let per = 3; per <= 11; per++) {
+          item.width = Math.round((per * sz / W) * 1000) / 1000;
+          const M = measure(item, spec, measureText), [mx, my] = outer(M);
+          const fits = 2 * (mx + 8) + 2 * pad < (bx1 - bx0) * 0.92 && 2 * (my + 8) + 2 * pad < (by1 - by0) * 0.9;
+          const cols = M.lines, mids = midBreaks(M.toks, cols);
+          const lonely = cols.length > 1 && cols.some((c) => c.reduce((a, i) => a + [...M.toks[i].w].length, 0) <= 1);
+          const score = Math.abs(M.ry / M.rx - 1.6) * 0.6 + 0.1 * cols.length + 1.5 * mids + (lonely ? 1 : 0) + (cols.length > 5 ? 2 : 0) + (fits ? 0 : 10);
+          if (!pick || score < pick.score) pick = { w: item.width, score };
+        }
+        item.width = pick.w;
+      } else {
         // pick the balloon width: fits the panel, rounder than wide (about 1.3 : 1), at most 4 lines
         let pick = null;
         for (let w = 0.08; w <= 0.36; w += 0.02) {
@@ -598,11 +743,12 @@
           for (const f of mine) { const c = overlap(r, core(f.box)) / area; ovF += c; cost += 9000 * c + 1500 * overlap(r, f.box) / area; }
           for (const z of figures) { const c = overlap(r, z) / area; ovF += c; cost += 9000 * c; } // a break-out lies over the panels: a balloon under or over it is lost
           placed.forEach((q, qi) => {
-            if (chained && qi === placed.length - 1) { const o = overlap(tr, q.text) / area; ovT += o; cost += 20000 * o; } // joined balloons may touch; their words never
+            if (chained && qi === placed.length - 1) { const o = overlap(tr, q.text) / area + overlap(r, q.text) / area * 0.5; ovT += o; cost += 20000 * o; } // joined balloons may touch; their words never (nor this balloon's edge)
             else { const o = overlap(r, q.rect) / area; ovB += o; cost += 14000 * o; }
           });
           if (chained) {
-            const tx = prev.cx + fwd * (prev.ox + ox) * 0.62, ty = prev.cy + (prev.oy + oy) * 0.62;
+            // Japanese columns read sideways, so the next joined balloon sits beside the last (a little lower); lines across stack down the page
+            const tx = L.vertical ? prev.cx + fwd * (prev.ox + ox) * 0.8 : prev.cx + fwd * (prev.ox + ox) * 0.62, ty = L.vertical ? prev.cy + (prev.oy + oy) * 0.25 : prev.cy + (prev.oy + oy) * 0.62;
             cost += 3 * Math.hypot(cx - tx, cy - ty);
           } else if (face) {
             const fx = (face.box[0] + face.box[2]) / 2;
@@ -899,6 +1045,6 @@
     return out;
   }
 
-  g.PageRender = { W, H, MARGIN, GUTTER, FONTS, KINDS, TAIL_KINDS, PANEL_TYPES, measure, outer, letteringSvg, pageNumberSvg, check, plain, esc, styleFor,
+  g.PageRender = { W, H, MARGIN, GUTTER, FONTS, KINDS, TAIL_KINDS, PANEL_TYPES, JA_FONT, isJapanese, isVertical, jaUnits, measure, outer, letteringSvg, pageNumberSvg, check, plain, esc, styleFor,
     layoutBoxes, layoutGeom, allPanels, isRtl, panelsFrac, cropWindow, artMap, layoutSvg, protectBoxes, faceZones, autoPlace, planFor, boardHeads, bridgeSpot, breakoutsSvg, breakoutZones, SHAPES, validShape, toneState, breakoutTone, pageTone, pageArt, pictures, sfxWord, crossesItself };
 })(typeof window !== "undefined" ? window : globalThis);

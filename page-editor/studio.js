@@ -393,7 +393,8 @@
   function setLook(v) { put(KEY, v === "device" ? null : v); root.dataset.theme = v === "device" ? (dev.matches ? "light" : "dark") : v; const b = document.getElementById("themeBtn"); if (b) b.dispatchEvent(new Event("ibasho-refresh")); }
   function lookRow() {
     const cur = get(KEY) || "device";
-    return `<div class="setrow set-look"><span><b>Look</b><br><span class="hint">Follow the device switches with your phone or computer.</span></span><span class="segs" role="group" aria-label="Look">` +
+    const L = window.IbashoI18n && IbashoI18n.lang === "ja"; // "Look" alone means "to look at" elsewhere, so this row names itself
+    return `<div class="setrow set-look"><span><b>${L ? "表示テーマ" : "Look"}</b><br><span class="hint">Follow the device switches with your phone or computer.</span></span><span class="segs" role="group" aria-label="${L ? "表示テーマ" : "Look"}">` +
       [["device", "Follow the device"], ["light", "Light"], ["dark", "Dark"]].map(([v, t]) => `<button type="button" class="seg" data-look="${v}" aria-pressed="${cur === v}">${t}</button>`).join("") + `</span></div>`;
   }
   function wireLook(box) { box.addEventListener("click", (e) => { const b = e.target.closest("[data-look]"); if (!b) return; setLook(b.dataset.look); box.querySelectorAll("[data-look]").forEach((x) => x.setAttribute("aria-pressed", x === b)); }); }
@@ -418,7 +419,7 @@
     // the editor has its own Settings window: add the look choice to it
     const own = document.getElementById("settingsDlg");
     if (own) { const h = own.querySelector(".dlg-head"); h.insertAdjacentHTML("afterend", lookRow()); own.insertAdjacentHTML("beforeend", ACCESS + KEYS); wireLook(own); wireAccess(own);
-      own.querySelectorAll("p.hint").forEach((p) => { if (/sun and moon/.test(p.textContent)) p.remove(); }); }
+      own.querySelectorAll("p.hint").forEach((p) => { if (p.hasAttribute("data-sun-hint") || /sun and moon/.test(p.textContent)) p.remove(); }); }
     // every other screen: a shared Settings window behind the cog
     const cog = document.getElementById("settingsBtn");
     if (cog && !own) {

@@ -947,7 +947,7 @@
     readingSegs($("seReading"), readingNow());
     const on = readOnNow(); $("seReadOn").innerHTML = Object.entries(READ_ON).map(([k, [a, b]]) => `<button type="button" class="seg" data-readon="${k}" aria-pressed="${on === k}">${a} <small>(${b})</small></button>`).join("");
     $("seReadOnNote").textContent = on === "phone" ? "Pages are read small: the Paneler aims for 3 to 5 roomy panels a page, and the checks say so when pages get crowded." : "Pages are read at book size: about five panels a page, up to six.";
-    $("seReadingNote").textContent = readingNow() === "rtl" ? "Panels run from the right of each row, and in a panel the first balloon sits top right. The words stay in horizontal English."
+    $("seReadingNote").textContent = readingNow() === "rtl" ? "Panels run from the right of each row, and in a panel the first balloon sits top right. English words stay across; Japanese words stand in columns (縦書き), the first column on the right."
       : "Panels run from the left of each row, and in a panel the first balloon sits top left.";
     const cur = STYLES.find((s) => s.id === bible.style_id) || STYLES.find((s) => s.style === bible.style), edited = cur && cur.style !== bible.style;
     $("seStyleInfo").textContent = (cur ? `This series is drawn in “${cur.name}”${edited ? ", with your own changes to the wording" : ""}.` : "This series has its own style text.") + " Pick another to change the look of every new picture.";
@@ -2463,7 +2463,7 @@
     const b = await (await fetch(url)).blob();
     return await new Promise((res) => { const r = new FileReader(); r.onload = () => res(r.result); r.readAsDataURL(b); });
   }
-  const FONT_FILES = { playpen: ["Playpen Sans", "PlaypenSans.ttf", "100 800"], bangers: ["Bangers", "Bangers.ttf", "400"], vollkorn: ["Vollkorn", "Vollkorn.ttf", "400 900"], patrick: ["Patrick Hand", "PatrickHand.ttf", "400"], comicneue: ["Comic Neue", "ComicNeue-Bold.ttf", "700"], kalam: ["Kalam", "Kalam-Bold.ttf", "700"] };
+  const FONT_FILES = { playpen: ["Playpen Sans", "PlaypenSans.ttf", "100 800"], bangers: ["Bangers", "Bangers.ttf", "400"], vollkorn: ["Vollkorn", "Vollkorn.ttf", "400 900"], patrick: ["Patrick Hand", "PatrickHand.ttf", "400"], comicneue: ["Comic Neue", "ComicNeue-Bold.ttf", "700"], kalam: ["Kalam", "Kalam-Bold.ttf", "700"], zenantique: ["Zen Antique Soft", "ZenAntiqueSoft-Regular.woff2", "400"], delagothic: ["Dela Gothic One", "DelaGothicOne-Regular.woff2", "400"], zenkaku: ["Zen Kaku Gothic New", "ZenKakuGothicNew-Bold.woff2", "700"], zenmaru: ["Zen Maru Gothic", "ZenMaruGothic-Bold.woff2", "700"] };
   /** One finished page (art + lettering) as a 2048 x 3072 PNG. */
   async function pageBlob(p, measured) {
     const used = new Set(measured.map((L) => L.fontKey)); used.add("vollkorn");
@@ -3024,6 +3024,15 @@
     else return;
     render(); window.scrollTo(0, 0);
   }
+  /** A chapter with Japanese words: fetch the Japanese lettering fonts (only then: they are large), then measure and draw again. */
+  const jaLoaded = new Set();
+  function jaFonts(id) {
+    if (!spec || !spec.pages.some((p) => (p.text || []).some((t) => R.isJapanese(t.text)))) return;
+    const want = [["Zen Antique Soft", 400], ["Dela Gothic One", 400], ["Zen Kaku Gothic New", 700], ["Zen Maru Gothic", 700]].filter(([fam]) => !jaLoaded.has(fam));
+    if (!want.length) return;
+    Promise.all(want.map(([fam, w]) => document.fonts.load(`${w} 30px '${fam}'`, "あ漢").then(() => jaLoaded.add(fam)).catch(() => null)))
+      .then(() => { if (proj && proj.id === id) { mcache.clear(); render(); } });
+  }
   async function loadProject(id) {
     const f = PROJECTS.find((q) => q.id === id) || PROJECTS[0];
     if (!f) { mode = "home"; inProject(false); render(); setStatus("Ready", "ok"); return; } // nothing made yet
@@ -3042,6 +3051,7 @@
     mcache.clear();
     $("projSel").value = f.id;
     render();
+    jaFonts(f.id);
     jobs = {}; clearTimeout(jobTimer);
     initStore().then(() => { // on your own computer: pick up any request that is still waiting (made earlier, or on the test page)
       if (!canDraw() || f.id !== proj.id) return;

@@ -35,6 +35,7 @@ try {
     await page.waitForFunction(() => document.getElementById("npIdeaGo").disabled && document.getElementById("npIdeaSkip").disabled && /Writer/.test(document.getElementById("npIdeaHint").textContent));
     ok(true, `${name}: while the Writer works the buttons wait and the form says so`);
     if (name === "desktop") { // a reload in the middle: the draft is picked up again
+      await page.waitForFunction(() => localStorage.getItem("ibasho.idea")); // (the draft's id is kept once the Writer's job is taken: a reload before that has nothing to pick up)
       await page.reload(); await page.waitForSelector("#newProj:not([hidden])");
       // the talk: the Writer's plan and question come back; the person changes the plan, answers, and asks for the script
       await page.waitForSelector("#npTalk:not([hidden])", { timeout: 20000 });

@@ -67,6 +67,22 @@ To use a different port, run `node server.mjs 5200`. When Ibasho starts it print
 4. On the Chapter screen, click **Draw the missing pictures**. Each picture takes about 3 minutes, and two are drawn at a time.
 5. Click **Letterer: letter every page**, adjust anything by hand, then **Export**.
 
+### Let your agent run it (MCP)
+
+Ibasho comes with its own MCP server, `page-editor/mcp.mjs`, so Claude Code, Codex, Gemini CLI or any MCP client running on the same computer can work the studio for you: storyboard a script, change layouts, draw panels, letter, check and export pages, and plan and run anime shots. It drives the running app through the same routes the screens use, so you see every change on screen, paid jobs still show their price and wait for your yes, the monthly cap still holds, and nothing deletes saved work unless the call says so.
+
+With Ibasho running, from the `ibasho-studio` folder:
+
+```bash
+claude mcp add ibasho -- node "$PWD/page-editor/mcp.mjs"   # Claude Code
+codex mcp add ibasho -- node "$PWD/page-editor/mcp.mjs"    # Codex
+gemini mcp add ibasho node "$PWD/page-editor/mcp.mjs"       # Gemini CLI
+```
+
+Apps that run in the cloud (the Gemini app, Meta's Muse) can only reach an MCP server on the internet, so they cannot connect to Ibasho on your computer yet.
+
+Claude Code also finds it by itself when opened in the `ibasho-studio` folder (the repo's `.mcp.json`). Then ask in plain words, for example: "Storyboard chapter 3 from script.md, draw the missing panels and letter every page." If Ibasho runs on another port or computer, set `IBASHO_URL` (and `IBASHO_CODE`, the access code, for another computer).
+
 ---
 
 ## Settings
@@ -126,5 +142,5 @@ The fonts and StageFlow keep their own licences (below).
 
 ## Credits
 
-- Lettering fonts: Bangers, Comic Neue, Kalam, Patrick Hand, Playpen Sans and Vollkorn, all under the SIL Open Font License (licence files in `page-editor/fonts/`).
+- Lettering fonts: Bangers, Comic Neue, Kalam, Patrick Hand, Playpen Sans and Vollkorn; for Japanese, Zen Antique Soft, Dela Gothic One, Zen Kaku Gothic New and Zen Maru Gothic. All under the SIL Open Font License (licence files in `page-editor/fonts/`).
 - Grey 3D animatics: [StageFlow](https://github.com/taruma/stageflow) (MIT).

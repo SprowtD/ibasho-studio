@@ -45,12 +45,20 @@ const wrongTry = (req) => { const k = deviceOf(req); if (!tries.has(k)) tries.se
 /** host:port as the browser names it, lower case: an Origin ("http://name:5178") and a Host header ("name:5178") compare equal. */
 const siteOf = (v) => String(v || "").toLowerCase().replace(/^[a-z][a-z0-9+.-]*:\/\//, "").replace(/\/.*$/, "");
 
-const page = (msg) => `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Ibasho: let this device in</title>
+// The page another device sees first: in Japanese when the address says ?lang=ja or the browser asks for Japanese first (Accept-Language)
+const WORDS = {
+  en: { title: "Ibasho: let this device in", h: "Let this device in", p: "This Ibasho belongs to someone. Type its access code once and this device is remembered. The code is shown under Settings when Ibasho is opened on the computer that runs it.", go: "Open Ibasho",
+    many: "Too many wrong codes. Wait ten minutes and try again.", wrong: "That is not the code. Check it and try again." },
+  ja: { title: "Ibasho: この端末を許可", h: "この端末を許可", p: "この Ibasho には持ち主がいます。アクセスコードを一度入力すると、この端末は記憶されます。コードは、Ibasho を動かしているコンピューターで開いたときに「設定」に表示されます。", go: "Ibasho を開く",
+    many: "間違ったコードが多すぎます。10分待ってからもう一度お試しください。", wrong: "コードが違います。確認してもう一度お試しください。" },
+};
+export const langOf = (req, url) => { const q = url && url.searchParams.get("lang"); if (q === "ja" || q === "en") return q; return /^\s*ja\b/i.test(String(req.headers["accept-language"] || "")) ? "ja" : "en"; };
+export const page = (msg, lang = "en") => { const w = WORDS[lang] || WORDS.en; return `<!doctype html><html lang="${lang}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${w.title}</title>
 <style>body{margin:0;min-height:100vh;display:grid;place-items:center;background:#0b0908;color:#f6f0ec;font:500 17px/1.5 system-ui,sans-serif}main{width:min(92vw,420px);padding:24px}h1{font-size:1.6rem;margin:0 0 10px;letter-spacing:-.02em}p{color:#b3a49b;margin:0 0 18px}
 input{width:100%;box-sizing:border-box;min-height:52px;padding:0 16px;border-radius:12px;border:1.5px solid #3a2e29;background:#14100e;color:#f6f0ec;font:600 1.2rem ui-monospace,monospace;letter-spacing:.08em;text-transform:uppercase}
 button{margin-top:12px;width:100%;min-height:52px;border:0;border-radius:12px;background:#f2603f;color:#250803;font:800 1rem system-ui,sans-serif}.bad{color:#ff8f8f}</style></head>
-<body><main><h1>Let this device in</h1><p>This Ibasho belongs to someone. Type its access code once and this device is remembered. The code is shown under Settings when Ibasho is opened on the computer that runs it.</p>
-${msg ? `<p class="bad">${msg}</p>` : ""}<form method="get"><input name="key" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="XXXX-XXXX-XXXX" required autofocus><button>Open Ibasho</button></form></main></body></html>`;
+<body><main><h1>${w.h}</h1><p>${w.p}</p>
+${msg ? `<p class="bad">${w[msg] || ""}</p>` : ""}<form method="get"><input name="key" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="XXXX-XXXX-XXXX" required autofocus>${lang === "ja" ? '<input type="hidden" name="lang" value="ja">' : ""}<button>${w.go}</button></form></main></body></html>`; };
 
 /** Addresses another device may open this Ibasho by: STUDIO_ADDRESSES first (set it when the computer is reached through another
  * address, e.g. Windows forwarding to WSL, or Tailscale), then this computer's own network addresses. */
@@ -86,5 +94,5 @@ export async function gate(req, res, url, saved) {
   res.setHeader("cache-control", "no-store");
   if (isApi) { res.statusCode = 401; res.setHeader("content-type", "application/json"); res.end(JSON.stringify({ error: "This device has not been let in yet. Open Ibasho in the browser and type the access code." })); return false; }
   res.statusCode = 401; res.setHeader("content-type", "text/html; charset=utf-8");
-  res.end(page(tooManyTries(req) ? "Too many wrong codes. Wait ten minutes and try again." : key ? "That is not the code. Check it and try again." : "")); return false;
+  res.end(page(tooManyTries(req) ? "many" : key ? "wrong" : "", langOf(req, url))); return false;
 }
